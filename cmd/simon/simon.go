@@ -2,6 +2,7 @@ package simon
 
 import (
 	goflag "flag"
+	"github.com/alibaba/open-simulator/cmd/webhook"
 	"os"
 
 	"github.com/alibaba/open-simulator/cmd/apply"
@@ -35,6 +36,7 @@ func NewSimonCommand() *cobra.Command {
 		apply.ApplyCmd,
 		doc.GenDoc.DocCmd,
 		migrate.MigrateCmd,
+		webhook.WebhookServerCmd,
 	)
 	simonCmd.SetGlobalNormalizationFunc(cliflag.WordSepNormalizeFunc)
 	simonCmd.Flags().AddGoFlagSet(goflag.CommandLine)

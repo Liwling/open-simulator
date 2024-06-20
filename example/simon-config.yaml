@@ -10,7 +10,7 @@ spec:
   #   kubeConfig: 真实集群的kube-config文件
   #   以上两者取其一
   cluster:
-#    customConfig: example/cluster/CpuAndMem
+#    customConfig: example/cluster/cpuAndMem
     customConfig: example/cluster/multiResource
     #kubeConfig: /Users/wh/.kube/config
 
@@ -25,7 +25,7 @@ spec:
 #      path: example/application/charts/yoda
 #      chart: true
 #    - name: test
-#      path: example/application/balanced_allocation_test/CpuAndMem
+#      path: example/application/balanced_allocation_test/cpuAndMem
     - name: test
       path: example/application/balanced_allocation_test/multiResource
 #    - name: complicated
@@ -36,5 +36,5 @@ spec:
     #  path: example/application/more_pods
 
   # newNode: 导入调整集群规模的节点配置文件，节点规格可根据需求任意指定。目前只支持配置一个节点
-#  newNode: example/newnode/CpuAndMem
+#  newNode: example/newnode/cpuAndMem
   newNode: example/newnode/multiResource

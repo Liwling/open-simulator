@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-6-deploy
+  namespace: test
+  labels:
+    app: app-6-deploy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-6-deploy
+  template:
+    metadata:
+      labels:
+        app: app-6-deploy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: app-6
+        image: app-6
+        resources:
+          requests:
+            cpu: 4
+            memory: 1.72Gi
+            wh.com/bandwidth: 8Mi
+            wh.com/disk: 8Gi
+          limits:
+            cpu: 4
+            memory: 4Gi
+            wh.com/bandwidth: 8Mi
+            wh.com/disk: 8Gi

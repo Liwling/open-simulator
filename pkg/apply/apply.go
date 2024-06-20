@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"sort"
 	"strconv"
@@ -151,6 +152,8 @@ func (applier *Applier) Run() (err error) {
 		resourceList = append(resourceList, app.Name)
 	}
 
+	SetRandResource(resourceMap[resourceList[0]], clusterResourceCopy.Nodes[0])
+
 	// Step 3: convert the path of the new node to be added into the kubernetes object
 	// only support temporarily one type of node at present
 	var nodeResource simulator.ResourceTypes
@@ -193,6 +196,12 @@ func (applier *Applier) Run() (err error) {
 			Resource: resourceMap[name],
 		})
 	}
+
+	nodes, err := utils.NewFakeNodes(newNode, 11)
+	if err != nil {
+		return err
+	}
+	clusterResourceCopy.Nodes = append(clusterResourceCopy.Nodes, nodes...)
 
 	// Step 4: determining that the current cluster can deploy selected applications and meets the given requests,
 	// If everything is ok, output the result. Otherwise we adjust the scale of cluster by adding node
@@ -322,6 +331,10 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 		"CPU Requests",
 		"Memory Allocatable",
 		"Memory Requests",
+		"Bandwidth Allocatable",
+		"Bandwidth Requests",
+		"Disk Allocatable",
+		"Disk Requests",
 	}
 	if containGpu(extendedResources) {
 		nodeTableHeader = append(nodeTableHeader, []string{
@@ -355,9 +368,11 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 		node := status.Node
 		allocatable := node.Status.Allocatable
 		reqs := nodeReq[status.Node.Name]
-		nodeCpuReq, nodeMemoryReq := reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory]
+		nodeCpuReq, nodeMemoryReq, nodeBandwidthReq, nodeDiskReq := reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory], reqs[simontype.BandwidthName], reqs[simontype.DiskName]
 		nodeCpuReqFraction := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
 		nodeMemoryReqFraction := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
+		nodeBandwidthReqFraction := float64(nodeBandwidthReq.Value()) / float64(allocatable.Name(simontype.BandwidthName, resource.BinarySI).Value()) * 100
+		nodeDiskReqFraction := float64(nodeDiskReq.Value()) / float64(allocatable.Name(simontype.DiskName, resource.BinarySI).Value()) * 100
 		newNode := ""
 		if _, exist := node.Labels[simontype.LabelNewNode]; exist {
 			newNode = "√"
@@ -366,9 +381,13 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 		data := []string{
 			node.Name,
 			allocatable.Cpu().String(),
-			fmt.Sprintf("%s(%d%%)", nodeCpuReq.String(), int64(nodeCpuReqFraction)),
+			fmt.Sprintf("%s(%.1f%%)", nodeCpuReq.String(), nodeCpuReqFraction),
 			allocatable.Memory().String(),
-			fmt.Sprintf("%s(%d%%)", nodeMemoryReq.String(), int64(nodeMemoryReqFraction)),
+			fmt.Sprintf("%s(%.1f%%)", nodeMemoryReq.String(), nodeMemoryReqFraction),
+			allocatable.Name(simontype.BandwidthName, resource.BinarySI).String(),
+			fmt.Sprintf("%s(%.1f%%)", nodeBandwidthReq.String(), nodeBandwidthReqFraction),
+			allocatable.Name(simontype.DiskName, resource.BinarySI).String(),
+			fmt.Sprintf("%s(%.1f%%)", nodeDiskReq.String(), nodeDiskReqFraction),
 		}
 		if containGpu(extendedResources) {
 			nodeGpuMemReq := resource.NewQuantity(0, resource.BinarySI)
@@ -380,7 +399,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 			nodeGpuMemFraction := float64(nodeGpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
 			data = append(data, []string{
 				allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).String(),
-				fmt.Sprintf("%s(%d%%)", nodeGpuMemReq.String(), int64(nodeGpuMemFraction)),
+				fmt.Sprintf("%s(%.1f%%)", nodeGpuMemReq.String(), nodeGpuMemFraction),
 			}...)
 		}
 		data = append(data, []string{
@@ -425,7 +444,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 							"VG",
 							vg.Name,
 							capacity.String(),
-							fmt.Sprintf("%s(%d%%)", request.String(), int64(float64(vg.Requested)/float64(vg.Capacity)*100)),
+							fmt.Sprintf("%s(%.1f%%)", request.String(), float64(vg.Requested)/float64(vg.Capacity)*100),
 						}
 						nodeStorageTableData = append(nodeStorageTableData, storageData)
 					}
@@ -475,7 +494,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 						nodeGpuMemReq.Add(*gpuMemReq)
 					}
 					gpuReqCapFraction := float64(nodeGpuMemReq.Value()) / float64(nodeGpuInfo.GpuTotalMemory.Value()) * 100
-					gpuReqCapStr := fmt.Sprintf("%s/%s(%d%%)", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String(), int(gpuReqCapFraction))
+					gpuReqCapStr := fmt.Sprintf("%s/%s(%.1%%)", nodeGpuMemReq.String(), nodeGpuInfo.GpuTotalMemory.String(), gpuReqCapFraction)
 					nodeOutputLine := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d GPUs", nodeGpuInfo.GpuCount), gpuReqCapStr, fmt.Sprintf("%d Pods", nodeGpuInfo.NumPods)}
 					nodeGpuTableData = append(nodeGpuTableData, nodeOutputLine)
 
@@ -487,7 +506,7 @@ func reportClusterInfo(nodeStatuses []simulator.NodeStatus, extendedResources []
 							}
 							devUsedGpuMem := deviceInfoBrief.GpuUsedMemory
 							devReqCapFraction := float64(devUsedGpuMem.Value()) / float64(devTotalGpuMem.Value()) * 100
-							devReqCapStr := fmt.Sprintf("%s/%s(%d%%)", devUsedGpuMem.String(), devTotalGpuMem.String(), int(devReqCapFraction))
+							devReqCapStr := fmt.Sprintf("%s/%s(%.1f%%)", devUsedGpuMem.String(), devTotalGpuMem.String(), devReqCapFraction)
 							nodeOutputLineDev := []string{fmt.Sprintf("%s (%s)", node.Name, nodeGpuInfo.GpuModel), fmt.Sprintf("%d", idx), devReqCapStr, fmt.Sprintf("%s", deviceInfoBrief.PodList)}
 							nodeGpuTableData = append(nodeGpuTableData, nodeOutputLineDev)
 						}
@@ -551,6 +570,8 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 		"Pod",
 		"CPU Requests",
 		"Memory Requests",
+		"Bandwidth Requests",
+		"Disk Requests",
 	}
 	if containLocalStorage(extendedResources) {
 		header = append(header, "Volume Request")
@@ -574,10 +595,12 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 			if pod.Spec.NodeName != node.Name {
 				continue
 			}
-			req, limit := resourcehelper.PodRequestsAndLimits(pod)
-			cpuReq, _, memoryReq, _ := req[corev1.ResourceCPU], limit[corev1.ResourceCPU], req[corev1.ResourceMemory], limit[corev1.ResourceMemory]
-			fractionCpuReq := float64(cpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
-			fractionMemoryReq := float64(memoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
+			req, _ := resourcehelper.PodRequestsAndLimits(pod)
+			cpuReq, memoryReq, bandwidthReq, diskReq := req[corev1.ResourceCPU], req[corev1.ResourceMemory], req[simontype.BandwidthName], req[simontype.DiskName]
+			cpuReqFraction := float64(cpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
+			memoryReqFraction := float64(memoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
+			bandwidthReqFraction := float64(bandwidthReq.Value()) / float64(allocatable.Name(simontype.BandwidthName, resource.BinarySI).Value()) * 100
+			diskReqFraction := float64(diskReq.Value()) / float64(allocatable.Name(simontype.DiskName, resource.BinarySI).Value()) * 100
 
 			// app name
 			appname := ""
@@ -586,8 +609,10 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 			}
 			data := []string{
 				fmt.Sprintf("%s/%s", pod.Namespace, pod.Name),
-				fmt.Sprintf("%s(%d%%)", cpuReq.String(), int64(fractionCpuReq)),
-				fmt.Sprintf("%s(%d%%)", memoryReq.String(), int64(fractionMemoryReq)),
+				fmt.Sprintf("%s(%.1f%%)", cpuReq.String(), cpuReqFraction),
+				fmt.Sprintf("%s(%.1f%%)", memoryReq.String(), memoryReqFraction),
+				fmt.Sprintf("%s(%.1f%%)", bandwidthReq.String(), bandwidthReqFraction),
+				fmt.Sprintf("%s(%.1f%%)", diskReq.String(), diskReqFraction),
 			}
 
 			// Storage
@@ -611,7 +636,7 @@ func reportNodeInfo(nodeStatuses []simulator.NodeStatus, extendedResources []str
 				gpuMem, gpuNum := gpushareutils.GetGpuMemoryAndCountFromPodAnnotation(pod)
 				gpuMemReq := resource.NewQuantity(int64(gpuMem*gpuNum), resource.BinarySI)
 				fractionGpuMemReq := float64(gpuMemReq.Value()) / float64(allocatable.Name(gpushareutils.ResourceName, resource.BinarySI).Value()) * 100
-				data = append(data, fmt.Sprintf("%s(%d%%)", gpuMemReq.String(), int64(fractionGpuMemReq)))
+				data = append(data, fmt.Sprintf("%s(%.1f%%)", gpuMemReq.String(), fractionGpuMemReq))
 			}
 
 			data = append(data, appname)
@@ -790,4 +815,91 @@ func containGpu(extendedResources []string) bool {
 		}
 	}
 	return false
+}
+
+func SetRandResource(resources simulator.ResourceTypes, node *corev1.Node) {
+	var replicasData []int32
+	var resourceData [][]int
+	deploymentNumber, resourceNumber := len(resources.Deployments), len(node.Status.Allocatable)-4
+
+	replicasData = []int32{2, 2, 3, 2, 1, 4, 2, 3, 1, 3, 4, 1, 2, 3, 4, 3, 3, 1, 1, 3}
+
+	resourceData = [][]int{{15, 10, 19, 31}, {9, 34, 24, 19}, {5, 25, 14, 5}, {29, 27, 9, 34}, {9, 33, 31, 28}, {6, 8, 21, 24}, {6, 23, 9, 15}, {15, 11, 17, 16}, {30, 34, 28, 15}, {32, 25, 7, 12}, {32, 15, 11, 28}, {13, 13, 23, 30}, {19, 5, 22, 12}, {33, 28, 24, 19}, {9, 24, 18, 34}, {7, 18, 10, 13}, {14, 10, 14, 10}, {7, 34, 23, 30}, {19, 7, 6, 33}, {29, 34, 20, 20}}
+
+	if len(replicasData) == 0 {
+		replicasData, resourceData = make([]int32, deploymentNumber), make([][]int, deploymentNumber)
+		for i := 0; i < deploymentNumber; i++ {
+			resourceData[i] = make([]int, resourceNumber)
+		}
+
+		for i := 0; i < deploymentNumber; i++ {
+			replicasData[i] = int32(1 + rand.Intn(4))
+
+			for j := range resourceData[i] {
+				resourceData[i][j] = 5 + rand.Intn(46)
+			}
+		}
+	}
+
+	fmt.Print("{")
+	for i := range replicasData {
+		if i != len(replicasData)-1 {
+			fmt.Printf("%d, ", replicasData[i])
+		} else {
+			fmt.Printf("%d", replicasData[i])
+		}
+	}
+	fmt.Print("}")
+	fmt.Println()
+
+	fmt.Print("{")
+	for i := range resourceData {
+		fmt.Print("{")
+		for j := range resourceData[i] {
+			if j != len(resourceData[i])-1 {
+				fmt.Printf("%d, ", resourceData[i][j])
+			} else {
+				fmt.Printf("%d", resourceData[i][j])
+			}
+		}
+		if i != len(resourceData)-1 {
+			fmt.Print("},")
+		} else {
+			fmt.Print("}")
+		}
+	}
+	fmt.Print("}")
+	fmt.Println()
+
+	for i, deploy := range resources.Deployments {
+		deploy.Spec.Replicas = &(replicasData[i])
+
+		if resourceNumber == 2 {
+			deploy.Spec.Template.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    *resource.NewMilliQuantity(node.Status.Allocatable.Cpu().MilliValue()/100*int64(resourceData[i][0]), resource.DecimalSI),
+					corev1.ResourceMemory: *resource.NewQuantity(node.Status.Allocatable.Memory().Value()/100*int64(resourceData[i][1]), resource.BinarySI),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    *resource.NewMilliQuantity(node.Status.Allocatable.Cpu().MilliValue(), resource.DecimalSI),
+					corev1.ResourceMemory: *resource.NewQuantity(node.Status.Allocatable.Memory().Value(), resource.BinarySI),
+				},
+			}
+		} else {
+			deploy.Spec.Template.Spec.Containers[0].Resources = corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:      *resource.NewMilliQuantity(node.Status.Allocatable.Cpu().MilliValue()/100*int64(resourceData[i][0]), resource.DecimalSI),
+					corev1.ResourceMemory:   *resource.NewQuantity(node.Status.Allocatable.Memory().Value()/100*int64(resourceData[i][1]), resource.BinarySI),
+					simontype.BandwidthName: *resource.NewQuantity(node.Status.Allocatable.Name(simontype.BandwidthName, resource.BinarySI).Value()/100*int64(resourceData[i][2]), resource.BinarySI),
+					simontype.DiskName:      *resource.NewQuantity(node.Status.Allocatable.Name(simontype.DiskName, resource.BinarySI).Value()/100*int64(resourceData[i][3]), resource.BinarySI),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:      *resource.NewMilliQuantity(node.Status.Allocatable.Cpu().MilliValue(), resource.DecimalSI),
+					corev1.ResourceMemory:   *resource.NewQuantity(node.Status.Allocatable.Memory().Value(), resource.BinarySI),
+					simontype.BandwidthName: *resource.NewQuantity(node.Status.Allocatable.Name(simontype.BandwidthName, resource.BinarySI).Value()/100*int64(resourceData[i][2]), resource.BinarySI),
+					simontype.DiskName:      *resource.NewQuantity(node.Status.Allocatable.Name(simontype.DiskName, resource.BinarySI).Value()/100*int64(resourceData[i][3]), resource.BinarySI),
+				},
+			}
+		}
+	}
 }

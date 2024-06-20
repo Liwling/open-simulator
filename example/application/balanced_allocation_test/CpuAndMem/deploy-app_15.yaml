@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-16-deploy
+  namespace: test
+  labels:
+    app: app-16-deploy
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: app-16-deploy
+  template:
+    metadata:
+      labels:
+        app: app-16-deploy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: app-9
+        image: app-9
+        resources:
+          requests:
+            cpu: 100m
+            memory: 400Mi
+          limits:
+            cpu: 1
+            memory: 2Gi

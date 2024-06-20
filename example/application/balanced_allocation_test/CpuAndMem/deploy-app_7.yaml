@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-11-deploy
+  namespace: test
+  labels:
+    app: app-11-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-11-deploy
+  template:
+    metadata:
+      labels:
+        app: app-11-deploy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: app-11
+        image: app-11
+        resources:
+          requests:
+            cpu: 800m
+            memory: 600Mi
+          limits:
+            cpu: 1
+            memory: 2Gi

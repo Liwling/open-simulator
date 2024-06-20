@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: busybox
+  namespace: test
+  labels:
+    app: busybox
+spec:
+  selector:
+    matchLabels:
+      app: busybox
+  template:
+    metadata:
+      labels:
+        app: busybox
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: DoesNotExist
+      containers:
+      - image: busybox
+        name: busybox
+        resources:
+          requests:
+            cpu: 1
+            memory: 1.5Gi
+            wh.com/bandwidth: 5Mi
+            wh.com/disk: 30Gi
+          limits:
+            cpu: 4
+            memory: 8Gi
+            wh.com/bandwidth: 5Mi
+            wh.com/disk: 30Gi
+      nodeSelector:
+        beta.kubernetes.io/os: linux

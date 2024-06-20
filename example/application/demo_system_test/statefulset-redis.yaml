@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: test
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  podManagementPolicy: Parallel
+  serviceName: "redis"
+  replicas: 6
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - redis
+            topologyKey: kubernetes.io/hostname
+#            namespaces:
+#            - simple
+#          preferredDuringSchedulingIgnoredDuringExecution:
+#          - weight: 100
+#            podAffinityTerm:
+#              labelSelector:
+#                matchExpressions:
+#                - key: app
+#                  operator: In
+#                  values:
+#                  - redis
+#              topologyKey: kubernetes.io/hostname
+#      tolerations:
+#      - key: node-role.kubernetes.io/master
+#        operator: Exists
+#        effect: NoSchedule
+      containers:
+      - name: redis
+        image: redis
+        command:
+        - sh
+        - "-c"
+        - |
+          while true; do
+            echo "huizhi testing";
+            echo "yes ">>/data/yes.txt;
+            sleep 120s
+          done;
+        resources:
+          requests:
+            cpu: 0.5
+            memory: 1Gi
+            wh.com/bandwidth: 10Mi
+            wh.com/disk: 20Gi
+          limits:
+            cpu: 4
+            memory: 8Gi
+            wh.com/bandwidth: 10Mi
+            wh.com/disk: 20Gi

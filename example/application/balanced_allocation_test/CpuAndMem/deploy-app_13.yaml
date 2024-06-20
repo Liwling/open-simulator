@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-14-deploy
+  namespace: test
+  labels:
+    app: app-14-deploy
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: app-14-deploy
+  template:
+    metadata:
+      labels:
+        app: app-14-deploy
+    spec:
+      hostNetwork: true
+#      tolerations:
+#      - key: node-role.kubernetes.io/master
+#        operator: Exists
+#        effect: NoSchedule
+      containers:
+      - name: app-7
+        image: app-7
+        resources:
+          requests:
+            cpu: 150m
+            memory: 750Mi
+          limits:
+            cpu: 1
+            memory: 2Gi

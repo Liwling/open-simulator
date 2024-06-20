@@ -3,6 +3,9 @@ package simulator
 import (
 	"context"
 	"fmt"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/podtopologyspread"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,7 +29,6 @@ import (
 	schedoptions "k8s.io/kubernetes/cmd/kube-scheduler/app/options"
 	kubeschedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	kubeschedulerscheme "k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
 
 	simontype "github.com/alibaba/open-simulator/pkg/type"
@@ -114,15 +116,41 @@ func GetValidPodExcludeDaemonSet(resources ResourceTypes) ([]*corev1.Pod, error)
 		}
 	}
 
+	//if len(resources.Deployments) > 0 {
+	//	handleDeployments := func() {
+	//		defer wg.Done()
+	//		tmpValidPods := make([]*corev1.Pod, 0)
+	//		start, count := rand.Intn(len(resources.Deployments)), 0
+	//		for i := start; count != len(resources.Deployments); i++ {
+	//			m := i % len(resources.Deployments)
+	//			deploy := resources.Deployments[m]
+	//			validPods, err := utils.MakeValidPodsByDeployment(deploy)
+	//			if err != nil {
+	//				errMu.Lock()
+	//				rstErr = fmt.Errorf("fail to make valid pods by deployment %s: %s\n", deploy.Name, err.Error())
+	//				errMu.Unlock()
+	//				return
+	//			}
+	//			tmpValidPods = append(tmpValidPods, validPods...)
+	//			count++
+	//		}
+	//		mu.Lock()
+	//		pods = append(pods, tmpValidPods...)
+	//		mu.Unlock()
+	//	}
+	//	wg.Add(1)
+	//	go handleDeployments()
+	//}
+
 	if len(resources.Deployments) > 0 {
 		handleDeployments := func() {
 			defer wg.Done()
 			tmpValidPods := make([]*corev1.Pod, 0)
-			for _, deploy := range resources.Deployments {
-				validPods, err := utils.MakeValidPodsByDeployment(deploy)
+			for _, dp := range resources.Deployments {
+				validPods, err := utils.MakeValidPodsByDeployment(dp)
 				if err != nil {
 					errMu.Lock()
-					rstErr = fmt.Errorf("fail to make valid pods by deployment %s: %s\n", deploy.Name, err.Error())
+					rstErr = fmt.Errorf("fail to make valid pods by deployment %s: %s\n", dp.Name, err.Error())
 					errMu.Unlock()
 					return
 				}
@@ -261,7 +289,7 @@ func GetObjectFromYamlContent(ymlStr []string) (ResourceTypes, error) {
 			case *batchv1beta1.CronJob:
 				resources.CronJobs = append(resources.CronJobs, o)
 			case *v1.StorageClass:
-				resources.StorageClasss = append(resources.StorageClasss, o)
+				resources.StorageClasses = append(resources.StorageClasses, o)
 			case *v1beta1.PodDisruptionBudget:
 				resources.PodDisruptionBudgets = append(resources.PodDisruptionBudgets, o)
 			default:
@@ -320,14 +348,31 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 	}
 	kcfg.Profiles[0].Plugins.Score = &kubeschedulerconfig.PluginSet{
 		Enabled: []kubeschedulerconfig.Plugin{
+			//{
+			//	Name: simontype.SimonPluginName,
+			//},
+			//{
+			//	Name: simontype.LeastAllocationPluginName,
+			//},
+			//{
+			//	Name: simontype.OpenLocalPluginName,
+			//},
+			//{
+			//	Name: simontype.OpenGpuSharePluginName,
+			//},
+			//{
+			//	Name: noderesources.MostAllocatedName,
+			//},
+		},
+		Disabled: []kubeschedulerconfig.Plugin{
 			{
-				Name: simontype.SimonPluginName,
+				Name: noderesources.LeastAllocatedName,
 			},
 			{
-				Name: simontype.OpenLocalPluginName,
+				Name: noderesources.BalancedAllocationName,
 			},
 			{
-				Name: simontype.OpenGpuSharePluginName,
+				Name: podtopologyspread.Name,
 			},
 		},
 	}
@@ -343,22 +388,22 @@ func GetAndSetSchedulerConfig(schedulerConfig string) (*config.CompletedConfig, 
 	}
 	kcfg.Profiles[0].Plugins.Reserve = &kubeschedulerconfig.PluginSet{
 		Enabled: []kubeschedulerconfig.Plugin{
-			{
-				Name: simontype.OpenGpuSharePluginName,
-			},
+			//{
+			//	Name: simontype.OpenGpuSharePluginName,
+			//},
 		},
 	}
 	kcfg.Profiles[0].Plugins.Bind = &kubeschedulerconfig.PluginSet{
 		Enabled: []kubeschedulerconfig.Plugin{
 			{
-				Name: simontype.OpenLocalPluginName,
-			},
-			{
-				Name: simontype.OpenGpuSharePluginName,
-			},
-			{
 				Name: simontype.SimonPluginName,
 			},
+			//{
+			//	Name: simontype.OpenLocalPluginName,
+			//},
+			//{
+			//	Name: simontype.OpenGpuSharePluginName,
+			//},
 		},
 		Disabled: []kubeschedulerconfig.Plugin{
 			{

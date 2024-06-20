@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -425,6 +427,7 @@ func MakeValidPod(oldPod *corev1.Pod) (*corev1.Pod, error) {
 			if newPod.Spec.Containers[i].TerminationMessagePolicy == "" {
 				newPod.Spec.Containers[i].TerminationMessagePolicy = corev1.TerminationMessageFallbackToLogsOnError
 			}
+
 			if newPod.Spec.Containers[i].ImagePullPolicy == "" {
 				newPod.Spec.Containers[i].ImagePullPolicy = corev1.PullIfNotPresent
 			}
@@ -912,4 +915,87 @@ func NewFakeNode(node *corev1.Node) (*corev1.Node, error) {
 	}
 	metav1.SetMetaDataLabel(&validNode.ObjectMeta, simontype.LabelNewNode, "")
 	return validNode, nil
+}
+
+func CalculateBalanceValue(requested *framework.Resource, allocatable *framework.Resource) (balanceValue float64, flag int) {
+	requestedResourceList, allocatableResourceList := requested.ResourceList(), allocatable.ResourceList()
+	currentRequestedResourceList, currentAllocatableResourceList := &requestedResourceList, &allocatableResourceList
+
+	cpuPercentage := float64(requested.MilliCPU) / float64(allocatable.MilliCPU)
+	memoryPercentage := float64(requested.Memory) / float64(allocatable.Memory)
+	if cpuPercentage > float64(1) || memoryPercentage > float64(1) {
+		flag = 1
+	}
+
+	if len(allocatableResourceList)-4 == 2 {
+		balanceValue = 1 - math.Abs(cpuPercentage-memoryPercentage)
+	} else {
+		bandwidthPercentage := float64(currentRequestedResourceList.Name(simontype.BandwidthName, resource.BinarySI).Value()) / float64(currentAllocatableResourceList.Name(simontype.BandwidthName, resource.BinarySI).Value())
+		diskPercentage := float64(currentRequestedResourceList.Name(simontype.DiskName, resource.BinarySI).Value()) / float64(currentAllocatableResourceList.Name(simontype.DiskName, resource.BinarySI).Value())
+		if bandwidthPercentage > 1 || diskPercentage > 1 {
+			flag = 1
+		}
+
+		percentageData := []float64{cpuPercentage, memoryPercentage, bandwidthPercentage, diskPercentage}
+		balanceValue = CalculateResourceValue(percentageData)
+	}
+
+	return
+}
+
+func CalculateResourcePercentage(requested *framework.Resource, allocatable *framework.Resource) (percentageData []float64) {
+	requestedResourceList, allocatableResourceList := requested.ResourceList(), allocatable.ResourceList()
+	currentRequestedResourceList, currentAllocatableResourceList := &requestedResourceList, &allocatableResourceList
+
+	cpuPercentage := float64(requested.MilliCPU) / float64(allocatable.MilliCPU)
+	memoryPercentage := float64(requested.Memory) / float64(allocatable.Memory)
+	if cpuPercentage > float64(1) || memoryPercentage > float64(1) {
+		return []float64{}
+	}
+
+	if len(allocatableResourceList)-4 == 2 {
+		percentageData = make([]float64, 2)
+		percentageData = []float64{cpuPercentage, memoryPercentage}
+	} else {
+		bandwidthPercentage := float64(currentRequestedResourceList.Name(simontype.BandwidthName, resource.BinarySI).Value()) / float64(currentAllocatableResourceList.Name(simontype.BandwidthName, resource.BinarySI).Value())
+		diskPercentage := float64(currentRequestedResourceList.Name(simontype.DiskName, resource.BinarySI).Value()) / float64(currentAllocatableResourceList.Name(simontype.DiskName, resource.BinarySI).Value())
+		if bandwidthPercentage > 1 || diskPercentage > 1 {
+			return []float64{}
+		}
+
+		percentageData = make([]float64, 4)
+		percentageData = []float64{cpuPercentage, memoryPercentage, bandwidthPercentage, diskPercentage}
+	}
+
+	return percentageData
+}
+
+func CalculateResourceMaxDifference(percentageData []float64) float64 {
+	postMaxPercentage, postMinPercentage := float64(0), float64(100)
+	for i := range percentageData {
+		if percentageData[i] > postMaxPercentage {
+			postMaxPercentage = percentageData[i]
+		}
+
+		if percentageData[i] < postMinPercentage {
+			postMinPercentage = percentageData[i]
+		}
+	}
+
+	return postMaxPercentage - postMinPercentage
+}
+
+func CalculateResourceValue(percentageData []float64) float64 {
+	totalSubPercentage, maxPercentage := float64(0), float64(0)
+	for i := range percentageData {
+		if percentageData[i] > maxPercentage {
+			maxPercentage = percentageData[i]
+		}
+	}
+
+	for i := range percentageData {
+		totalSubPercentage += maxPercentage - percentageData[i]
+	}
+
+	return 1 - totalSubPercentage/float64(len(percentageData)-1)
 }

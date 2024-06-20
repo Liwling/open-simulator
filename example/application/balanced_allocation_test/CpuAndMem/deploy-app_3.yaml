@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-10-deploy
+  namespace: test
+  labels:
+    app: app-10-deploy
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: app-10-deploy
+  template:
+    metadata:
+      labels:
+        app: app-10-deploy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: app-10
+        image: app-10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 300Mi
+          limits:
+            cpu: 1
+            memory: 1Gi

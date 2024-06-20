@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"sync"
 	"time"
 
@@ -20,7 +19,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	apimachineryjson "k8s.io/apimachinery/pkg/util/json"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -164,151 +162,151 @@ func (server *Server) setupRouter(opts ...simulator.Option) *gin.Engine {
 
 	// deloy apps
 	r.POST("api/deploy-apps", func(c *gin.Context) {
-		if deployLock.TryLock() {
-			defer deployLock.Unlock()
-			// unmarshal
-			req := &DeployAppRequest{}
-			reqData, err := ioutil.ReadAll(c.Request.Body)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, err.Error())
-				return
-			}
-			if err := apimachineryjson.Unmarshal(reqData, req); err != nil {
-				c.JSON(http.StatusBadRequest, fmt.Sprintf("fail to unmarshal content: %s\n", err.Error()))
-				return
-			}
-
-			// get current cluster resources
-			ClusterResource, err := server.getCurrentClusterResource()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get current cluster resources: %s", err.Error()))
-				return
-			}
-			for _, newNode := range req.NewNodes {
-				node, err := utils.NewFakeNode(newNode)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
-					return
-				}
-				ClusterResource.Nodes = append(ClusterResource.Nodes, node)
-			}
-
-			// app resources
-			AppResources := []simulator.AppResource{
-				{
-					Name: "test",
-					Resource: simulator.ResourceTypes{
-						Pods:         req.Pods,
-						Deployments:  req.Deployments,
-						StatefulSets: req.StatefulSets,
-						DaemonSets:   req.DaemonSets,
-						Jobs:         req.Jobs,
-						ConfigMaps:   req.ConfigMaps,
-					},
-				},
-			}
-			pendingPods, err := server.getPendingPods()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get pending pods: %s", err.Error()))
-				return
-			}
-			AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
-
-			// simulate
-			result, err := simulator.Simulate(ClusterResource, AppResources, opts...)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, err.Error())
-				return
-			}
-
-			response := getSimulateResponse(result)
-
-			c.JSON(http.StatusOK, response)
-		} else {
-			c.JSON(http.StatusServiceUnavailable, "The server is busy, please try again later")
-		}
+		//if deployLock.TryLock() {
+		//	defer deployLock.Unlock()
+		//	// unmarshal
+		//	req := &DeployAppRequest{}
+		//	reqData, err := ioutil.ReadAll(c.Request.Body)
+		//	if err != nil {
+		//		c.JSON(http.StatusBadRequest, err.Error())
+		//		return
+		//	}
+		//	if err := apimachineryjson.Unmarshal(reqData, req); err != nil {
+		//		c.JSON(http.StatusBadRequest, fmt.Sprintf("fail to unmarshal content: %s\n", err.Error()))
+		//		return
+		//	}
+		//
+		//	// get current cluster resources
+		//	ClusterResource, err := server.getCurrentClusterResource()
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get current cluster resources: %s", err.Error()))
+		//		return
+		//	}
+		//	for _, newNode := range req.NewNodes {
+		//		node, err := utils.NewFakeNode(newNode)
+		//		if err != nil {
+		//			c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
+		//			return
+		//		}
+		//		ClusterResource.Nodes = append(ClusterResource.Nodes, node)
+		//	}
+		//
+		//	// app resources
+		//	AppResources := []simulator.AppResource{
+		//		{
+		//			Name: "test",
+		//			Resource: simulator.ResourceTypes{
+		//				Pods:         req.Pods,
+		//				Deployments:  req.Deployments,
+		//				StatefulSets: req.StatefulSets,
+		//				DaemonSets:   req.DaemonSets,
+		//				Jobs:         req.Jobs,
+		//				ConfigMaps:   req.ConfigMaps,
+		//			},
+		//		},
+		//	}
+		//	pendingPods, err := server.getPendingPods()
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get pending pods: %s", err.Error()))
+		//		return
+		//	}
+		//	AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
+		//
+		//	// simulate
+		//	result, err := simulator.Simulate(ClusterResource, AppResources, opts...)
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, err.Error())
+		//		return
+		//	}
+		//
+		//	response := getSimulateResponse(result)
+		//
+		//	c.JSON(http.StatusOK, response)
+		//} else {
+		//	c.JSON(http.StatusServiceUnavailable, "The server is busy, please try again later")
+		//}
 	})
 
 	// scale apps
 	r.POST("api/scale-apps", func(c *gin.Context) {
-		if scaleLock.TryLock() {
-			defer scaleLock.Unlock()
-			// unmarshal
-			req := &ScaleAppRequest{}
-			reqData, err := ioutil.ReadAll(c.Request.Body)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, err.Error())
-				return
-			}
-			if err := apimachineryjson.Unmarshal(reqData, req); err != nil {
-				c.JSON(http.StatusBadRequest, fmt.Sprintf("fail to unmarshal content: %s\n", err.Error()))
-				return
-			}
-
-			// get current cluster resources
-			ClusterResource, err := server.getCurrentClusterResource()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get current cluster resources: %s", err.Error()))
-				return
-			}
-			for _, newNode := range req.NewNodes {
-				node, err := utils.NewFakeNode(newNode)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
-					return
-				}
-				ClusterResource.Nodes = append(ClusterResource.Nodes, node)
-			}
-
-			// remove app pods that will be scaled
-			ClusterResource.Pods, err = server.removePodsOfApp(ClusterResource.Pods, req)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, err.Error())
-				return
-			}
-			for _, reqDaemonset := range req.DaemonSets {
-				for j, ds := range ClusterResource.DaemonSets {
-					if ds.Name == reqDaemonset.Name && ds.Namespace == reqDaemonset.Namespace {
-						ClusterResource.DaemonSets[j] = reqDaemonset.DeepCopy()
-						break
-					}
-				}
-			}
-
-			// app resources
-			AppResources := []simulator.AppResource{
-				{
-					Name: "test",
-					Resource: simulator.ResourceTypes{
-						Deployments:  req.Deployments,
-						StatefulSets: req.StatefulSets,
-					},
-				},
-			}
-			pendingPods, err := server.getPendingPods()
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get pending pods: %s", err.Error()))
-				return
-			}
-			pendingPods, err = server.removePodsOfApp(pendingPods, req)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, err.Error())
-				return
-			}
-			AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
-
-			// simulate
-			result, err := simulator.Simulate(ClusterResource, AppResources, opts...)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, err.Error())
-				return
-			}
-			response := getSimulateResponse(result)
-
-			c.JSON(http.StatusOK, response)
-		} else {
-			c.JSON(http.StatusServiceUnavailable, "The server is busy, please try again later")
-		}
+		//if scaleLock.TryLock() {
+		//	defer scaleLock.Unlock()
+		//	// unmarshal
+		//	req := &ScaleAppRequest{}
+		//	reqData, err := ioutil.ReadAll(c.Request.Body)
+		//	if err != nil {
+		//		c.JSON(http.StatusBadRequest, err.Error())
+		//		return
+		//	}
+		//	if err := apimachineryjson.Unmarshal(reqData, req); err != nil {
+		//		c.JSON(http.StatusBadRequest, fmt.Sprintf("fail to unmarshal content: %s\n", err.Error()))
+		//		return
+		//	}
+		//
+		//	// get current cluster resources
+		//	ClusterResource, err := server.getCurrentClusterResource()
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get current cluster resources: %s", err.Error()))
+		//		return
+		//	}
+		//	for _, newNode := range req.NewNodes {
+		//		node, err := utils.NewFakeNode(newNode)
+		//		if err != nil {
+		//			c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to create a new fake node: %s", err.Error()))
+		//			return
+		//		}
+		//		ClusterResource.Nodes = append(ClusterResource.Nodes, node)
+		//	}
+		//
+		//	// remove app pods that will be scaled
+		//	ClusterResource.Pods, err = server.removePodsOfApp(ClusterResource.Pods, req)
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, err.Error())
+		//		return
+		//	}
+		//	for _, reqDaemonset := range req.DaemonSets {
+		//		for j, ds := range ClusterResource.DaemonSets {
+		//			if ds.Name == reqDaemonset.Name && ds.Namespace == reqDaemonset.Namespace {
+		//				ClusterResource.DaemonSets[j] = reqDaemonset.DeepCopy()
+		//				break
+		//			}
+		//		}
+		//	}
+		//
+		//	// app resources
+		//	AppResources := []simulator.AppResource{
+		//		{
+		//			Name: "test",
+		//			Resource: simulator.ResourceTypes{
+		//				Deployments:  req.Deployments,
+		//				StatefulSets: req.StatefulSets,
+		//			},
+		//		},
+		//	}
+		//	pendingPods, err := server.getPendingPods()
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, fmt.Sprintf("fail to get pending pods: %s", err.Error()))
+		//		return
+		//	}
+		//	pendingPods, err = server.removePodsOfApp(pendingPods, req)
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, err.Error())
+		//		return
+		//	}
+		//	AppResources[0].Resource.Pods = append(AppResources[0].Resource.Pods, pendingPods...)
+		//
+		//	// simulate
+		//	result, err := simulator.Simulate(ClusterResource, AppResources, opts...)
+		//	if err != nil {
+		//		c.JSON(http.StatusInternalServerError, err.Error())
+		//		return
+		//	}
+		//	response := getSimulateResponse(result)
+		//
+		//	c.JSON(http.StatusOK, response)
+		//} else {
+		//	c.JSON(http.StatusServiceUnavailable, "The server is busy, please try again later")
+		//}
 	})
 
 	return r
@@ -371,7 +369,7 @@ func (server *Server) getCurrentClusterResource() (simulator.ResourceTypes, erro
 		return resource, fmt.Errorf("unable to list storage classes: %v", err)
 	}
 	for _, item := range storageClasses {
-		resource.StorageClasss = append(resource.StorageClasss, item.DeepCopy())
+		resource.StorageClasses = append(resource.StorageClasses, item.DeepCopy())
 	}
 
 	pvcs, err := server.pvcLister.List(labels.Everything())

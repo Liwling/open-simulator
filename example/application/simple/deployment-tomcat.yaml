@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tomcat-deploy
+  namespace: kube-system
+  labels:
+    app: tomcat-deploy
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app: tomcat-deploy
+  template:
+    metadata:
+      labels:
+        app: tomcat-deploy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      # nodeSelector:
+      #   node-role.kubernetes.io/xdragon: "true"
+      containers:
+      - name: tomcat
+        image: tomcat
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1
+            memory: 2Gi

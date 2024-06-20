@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-1-deploy
+  namespace: test
+  labels:
+    app: app-1-deploy
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: app-1-deploy
+  template:
+    metadata:
+      labels:
+        app: app-1-deploy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: app-1
+        image: app-1
+        resources:
+          requests:
+            cpu: 0.5
+            memory: 0.15Gi
+            wh.com/bandwidth: 5Mi
+            wh.com/disk: 10Gi
+          limits:
+            cpu: 2
+            memory: 4Gi
+            wh.com/bandwidth: 5Mi
+            wh.com/disk: 10Gi

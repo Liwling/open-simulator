@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-8-deploy
+  namespace: test
+  labels:
+    app: app-8-deploy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-8-deploy
+  template:
+    metadata:
+      labels:
+        app: app-8-deploy
+    spec:
+      hostNetwork: true
+      containers:
+      - name: app-8
+        image: app-8
+        resources:
+          requests:
+            cpu: 200m
+            memory: 700Mi
+          limits:
+            cpu: 1
+            memory: 1Gi

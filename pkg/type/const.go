@@ -5,16 +5,19 @@ import (
 )
 
 const (
-	SimonPluginName        = "Simon"
-	OpenLocalPluginName    = "Open-Local"
-	OpenGpuSharePluginName = "Open-Gpu-Share"
-	NewNodeNamePrefix      = "simon"
-	DefaultSchedulerName   = corev1.DefaultSchedulerName
+	SimonPluginName              = "Simon"
+	OpenLocalPluginName          = "Open-Local"
+	OpenGpuSharePluginName       = "Open-Gpu-Share"
+	LeastAllocationPluginName    = "Least-Allocation"
+	BalancedAllocationPluginName = "Balanced-Allocation"
+	NewNodeNamePrefix            = "simon"
+	DefaultSchedulerName         = corev1.DefaultSchedulerName
 
 	StopReasonSuccess   = "everything is ok"
 	StopReasonDoNotStop = "do not stop"
 	CreatePodError      = "failed to create pod"
 	DeletePodError      = "failed to delete pod"
+	GetPodError         = "failed to get pod"
 
 	AnnoWorkloadKind      = "simon/workload-kind"
 	AnnoWorkloadName      = "simon/workload-name"
@@ -40,4 +43,7 @@ const (
 
 	NotesFileSuffix = "NOTES.txt"
 	SeparateSymbol  = "-"
+
+	BandwidthName = "wh.com/bandwidth"
+	DiskName      = "wh.com/disk"
 )

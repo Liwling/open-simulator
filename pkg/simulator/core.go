@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"fmt"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -44,7 +45,7 @@ type ResourceTypes struct {
 	ReplicaSets            []*appsv1.ReplicaSet
 	Services               []*corev1.Service
 	PersistentVolumeClaims []*corev1.PersistentVolumeClaim
-	StorageClasss          []*storagev1.StorageClass
+	StorageClasses         []*storagev1.StorageClass
 	PodDisruptionBudgets   []*policyv1beta1.PodDisruptionBudget
 	Jobs                   []*batchv1.Job
 	CronJobs               []*batchv1beta1.CronJob
@@ -73,7 +74,8 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	defer trace.LogIfLong(1 * time.Second)
 
 	// init simulator
-	sim, err := NewSimulator(opts...)
+	nodesInfo := NewNodeInfos(cluster.Nodes)
+	sim, err := NewSimulator(nodesInfo, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -105,8 +107,9 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	trace.Step("Trace Simulate run cluster done")
 
 	// schedule pods
+	newNode := cluster.Nodes[len(cluster.Nodes)-1]
 	for _, app := range apps {
-		result, err = sim.ScheduleApp(app)
+		result, err = sim.ScheduleApp(app, newNode, cluster.Nodes)
 		if err != nil {
 			return nil, err
 		}
@@ -114,6 +117,9 @@ func Simulate(cluster ResourceTypes, apps []AppResource, opts ...Option) (*Simul
 	}
 	result.UnscheduledPods = failedPods
 	trace.Step("Trace Simulate schedule app done")
+
+	clusterBalanceValue := CalculateClusterBalanceValue(nodesInfo)
+	fmt.Printf("%.3f\n", clusterBalanceValue)
 
 	return result, nil
 }

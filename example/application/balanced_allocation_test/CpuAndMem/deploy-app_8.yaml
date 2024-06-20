@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-5-deploy
+  namespace: test
+  labels:
+    app: app-5-deploy
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: app-5-deploy
+  template:
+    metadata:
+      labels:
+        app: app-5-deploy
+    spec:
+      hostNetwork: true
+#      tolerations:
+#      - key: node-role.kubernetes.io/master
+#        operator: Exists
+#        effect: NoSchedule
+      containers:
+      - name: app-5
+        image: app-5
+        resources:
+          requests:
+            cpu: 200m
+            memory: 1.5Gi
+          limits:
+            cpu: 1
+            memory: 2Gi

@@ -3,7 +3,8 @@ package simulator
 import (
 	"context"
 	"fmt"
-	"sort"
+	"github.com/alibaba/open-simulator/pkg/algo"
+	log "github.com/sirupsen/logrus"
 	"strings"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	utiltrace "k8s.io/utils/trace"
 
-	"github.com/alibaba/open-simulator/pkg/algo"
 	simonplugin "github.com/alibaba/open-simulator/pkg/simulator/plugin"
 	"github.com/alibaba/open-simulator/pkg/test"
 	simontype "github.com/alibaba/open-simulator/pkg/type"
@@ -53,7 +53,8 @@ type Simulator struct {
 	disablePTerm    bool
 	patchPodFuncMap PatchPodsFuncMap
 
-	status status
+	nodesInfo map[string]*framework.NodeInfo
+	status    status
 }
 
 // status captures reason why one pod fails to be scheduled
@@ -85,7 +86,7 @@ var defaultSimulatorOptions = simulatorOptions{
 }
 
 // NewSimulator generates all components that will be needed to simulate scheduling and returns a complete simulator
-func NewSimulator(opts ...Option) (*Simulator, error) {
+func NewSimulator(nodesInfo map[string]*framework.NodeInfo, opts ...Option) (*Simulator, error) {
 	var err error
 	// Step 0: configures a Simulator by opts
 	options := defaultSimulatorOptions
@@ -121,6 +122,7 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 		disablePTerm:          options.disablePTerm,
 		patchPodFuncMap:       options.patchPodFuncMap,
 		eventBroadcaster:      kubeSchedulerConfig.EventBroadcaster,
+		nodesInfo:             nodesInfo,
 	}
 
 	// Step 4: create informer
@@ -189,7 +191,10 @@ func NewSimulator(opts ...Option) (*Simulator, error) {
 	// Step 7: create scheduler for sim
 	bindRegistry := frameworkruntime.Registry{
 		simontype.SimonPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
-			return simonplugin.NewSimonPlugin(sim.fakeclient, configuration, f)
+			return simonplugin.NewSimonPlugin(sim.fakeclient, nodesInfo, configuration, f)
+		},
+		simontype.LeastAllocationPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
+			return simonplugin.NewLeastAllocationPlugin(nodesInfo, configuration, f)
 		},
 		simontype.OpenLocalPluginName: func(configuration runtime.Object, f framework.Handle) (framework.Plugin, error) {
 			return simonplugin.NewLocalPlugin(fakeClient, storagev1Informers, configuration, f)
@@ -229,16 +234,17 @@ func (sim *Simulator) RunCluster(cluster ResourceTypes) (*SimulateResult, error)
 	return sim.syncClusterResourceList(cluster)
 }
 
-func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
+func (sim *Simulator) ScheduleApp(app AppResource, newNode *corev1.Node, clusterNodes []*corev1.Node) (*SimulateResult, error) {
 	// 由 AppResource 生成 Pods
 	appPods, err := GenerateValidPodsFromAppResources(sim.fakeclient, app.Name, app.Resource)
 	if err != nil {
 		return nil, err
 	}
-	affinityPriority := algo.NewAffinityQueue(appPods)
-	sort.Sort(affinityPriority)
-	tolerationPriority := algo.NewTolerationQueue(appPods)
-	sort.Sort(tolerationPriority)
+	//affinityPriority := algo.NewAffinityQueue(appPods)
+	//sort.Sort(affinityPriority)
+	//tolerationPriority := algo.NewTolerationQueue(appPods)
+	//sort.Sort(tolerationPriority)
+	//algo.SortPodsBasedOnDiff(newNode, appPods)
 
 	if sim.kubeclient != nil {
 		for _, patchPods := range sim.patchPodFuncMap {
@@ -253,7 +259,7 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 			return nil, err
 		}
 	}
-	for _, sc := range app.Resource.StorageClasss {
+	for _, sc := range app.Resource.StorageClasses {
 		if _, err := sim.fakeclient.StorageV1().StorageClasses().Create(context.Background(), sc, metav1.CreateOptions{}); err != nil {
 			return nil, err
 		}
@@ -264,14 +270,37 @@ func (sim *Simulator) ScheduleApp(app AppResource) (*SimulateResult, error) {
 		}
 	}
 
+	start := time.Now()
+	//isFinished := algo.GeneticAlgorithm(50, 0.1, 500, appPods, clusterNodes)
+
+	isFinished := algo.GeneticAlgorithm2(50, 0.1, 500, appPods, clusterNodes)
+	t := time.Since(start)
+	fmt.Println(t)
+
+	if isFinished == -1 {
+		return nil, fmt.Errorf("调度遗传算法失败")
+	} else {
+		fmt.Println("调度遗传算法成功")
+	}
+
 	failedPod, err := sim.schedulePods(appPods)
 	if err != nil {
 		return nil, err
 	}
-	return &SimulateResult{
+
+	result := &SimulateResult{
 		UnscheduledPods: failedPod,
 		NodeStatus:      sim.getClusterNodeStatus(),
-	}, nil
+	}
+
+	podsCode := CodingResult(result, appPods, clusterNodes)
+	fmt.Printf("{%d", podsCode[0])
+	for i := 1; i < len(podsCode); i++ {
+		fmt.Printf(", %d", podsCode[i])
+	}
+	fmt.Printf("}\n")
+
+	return result, nil
 }
 
 func (sim *Simulator) getClusterNodeStatus() []NodeStatus {
@@ -315,7 +344,11 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 			_, _ = progressBar.Stop()
 		}()
 	}
+
+	//recordCV := make([]float64, 0)
 	for _, pod := range pods {
+		//recordCV = append(recordCV, reportClusterInfos(sim.nodesInfo))
+		//reportClusterInfos(sim.nodesInfo)
 		if !sim.disablePTerm {
 			// Update the title of the progressbar.
 			progressBar.UpdateTitle(fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
@@ -339,12 +372,109 @@ func (sim *Simulator) schedulePods(pods []*corev1.Pod) ([]UnscheduledPod, error)
 				Reason: sim.status.stopReason,
 			})
 			sim.status.stopReason = ""
+		} else {
+			if newPod, err := sim.fakeclient.CoreV1().Pods(pod.Namespace).Get(context.Background(), pod.Name, metav1.GetOptions{}); err != nil {
+				return nil, fmt.Errorf("%s %s/%s: %s", simontype.GetPodError, pod.Namespace, pod.Name, err.Error())
+			} else {
+				for nodeName := range sim.nodesInfo {
+					if nodeName == newPod.Spec.NodeName {
+						sim.nodesInfo[nodeName].AddPod(newPod)
+						fmt.Printf("  %s\n", nodeName)
+						break
+					}
+				}
+			}
 		}
+
 		if !sim.disablePTerm {
 			progressBar.Increment()
 		}
 	}
+
+	//for i := range recordCV {
+	//	fmt.Printf("%.3f\n", recordCV[i])
+	//}
+
 	return failedPods, nil
+}
+
+type nodeStatus struct {
+	nodeName string
+	nodeInfo *framework.NodeInfo
+}
+
+func reportClusterInfos(nodesInfo map[string]*framework.NodeInfo) float64 {
+	//objects := make([]nodeStatus, 0)
+	//for nodeName, nodeInfo := range nodesInfo {
+	//	objects = append(objects, nodeStatus{nodeName, nodeInfo})
+	//}
+	//sort.Slice(objects, func(i, j int) bool {
+	//	if objects[i].nodeName < objects[j].nodeName {
+	//		return true
+	//	}
+	//	return false
+	//})
+	//
+	//clusterTable := pterm.DefaultTable.WithHasHeader()
+	//var clusterTableData [][]string
+	//nodeTableHeader := []string{
+	//	"Node",
+	//	"CPU Allocatable",
+	//	"CPU Requests",
+	//	"Memory Allocatable",
+	//	"Memory Requests",
+	//	"Bandwidth Allocatable",
+	//	"Bandwidth Requests",
+	//	"Disk Allocatable",
+	//	"Disk Requests",
+	//}
+	//clusterTableData = append(clusterTableData, nodeTableHeader)
+	//
+	//for _, object := range objects {
+	//	node := object.nodeInfo.Node()
+	//	allocatable := node.Status.Allocatable
+	//	reqs := object.nodeInfo.Requested.ResourceList()
+	//	nodeCpuReq, nodeMemoryReq, nodeBandwidthReq, nodeDiskReq := reqs[corev1.ResourceCPU], reqs[corev1.ResourceMemory], reqs[simontype.BandwidthName], reqs[simontype.DiskName]
+	//	nodeCpuReqFraction := float64(nodeCpuReq.MilliValue()) / float64(allocatable.Cpu().MilliValue()) * 100
+	//	nodeMemoryReqFraction := float64(nodeMemoryReq.Value()) / float64(allocatable.Memory().Value()) * 100
+	//	nodeBandwidthReqFraction := float64(nodeBandwidthReq.Value()) / float64(allocatable.Name(simontype.BandwidthName, resource.BinarySI).Value()) * 100
+	//	nodeDiskReqFraction := float64(nodeDiskReq.Value()) / float64(allocatable.Name(simontype.DiskName, resource.BinarySI).Value()) * 100
+	//	data := []string{
+	//		node.Name,
+	//		allocatable.Cpu().String(),
+	//		fmt.Sprintf("%s(%.1f%%)", nodeCpuReq.String(), nodeCpuReqFraction),
+	//		allocatable.Memory().String(),
+	//		fmt.Sprintf("%s(%.1f%%)", nodeMemoryReq.String(), nodeMemoryReqFraction),
+	//		allocatable.Name(simontype.BandwidthName, resource.BinarySI).String(),
+	//		fmt.Sprintf("%s(%.1f%%)", nodeBandwidthReq.String(), nodeBandwidthReqFraction),
+	//		allocatable.Name(simontype.DiskName, resource.BinarySI).String(),
+	//		fmt.Sprintf("%s(%.1f%%)", nodeDiskReq.String(), nodeDiskReqFraction),
+	//	}
+	//
+	//	clusterTableData = append(clusterTableData, data)
+	//}
+	//
+	//if err := clusterTable.WithData(clusterTableData).Render(); err != nil {
+	//	pterm.FgRed.Printf("fail to render cluster table: %s\n", err.Error())
+	//	os.Exit(1)
+	//}
+	//pterm.FgYellow.Println()
+
+	nodeBalanceValues := make([]float64, len(nodesInfo))
+	nodeNumber := 0
+	for _, nodeInfo := range nodesInfo {
+		nodeBalanceValues[nodeNumber], _ = utils.CalculateBalanceValue(nodeInfo.Requested, nodeInfo.Allocatable)
+		nodeNumber++
+	}
+
+	nodeBalanceValueSum := float64(0)
+	for _, v := range nodeBalanceValues {
+		nodeBalanceValueSum += v
+	}
+
+	clusterBalanceValue := nodeBalanceValueSum / float64(len(nodesInfo))
+
+	return clusterBalanceValue
 }
 
 func (sim *Simulator) Close() {
@@ -385,7 +515,7 @@ func (sim *Simulator) syncClusterResourceList(resourceList ResourceTypes) (*Simu
 	}
 
 	//sync storage class
-	for _, item := range resourceList.StorageClasss {
+	for _, item := range resourceList.StorageClasses {
 		if _, err := sim.fakeclient.StorageV1().StorageClasses().Create(context.TODO(), item, metav1.CreateOptions{}); err != nil {
 			return nil, fmt.Errorf("unable to copy storage class: %v", err)
 		}
@@ -564,7 +694,7 @@ func CreateClusterResourceFromClient(client externalclientset.Interface, disable
 	}
 	for _, item := range storageClassesItems.Items {
 		newItem := item
-		resource.StorageClasss = append(resource.StorageClasss, &newItem)
+		resource.StorageClasses = append(resource.StorageClasses, &newItem)
 	}
 
 	pvcItems, err := client.CoreV1().PersistentVolumeClaims(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{})
@@ -616,4 +746,61 @@ func CreateClusterResourceFromClusterConfig(path string) (ResourceTypes, error) 
 	MatchAndSetLocalStorageAnnotationOnNode(resource.Nodes, path)
 
 	return resource, nil
+}
+
+func NewNodeInfos(nodes []*corev1.Node) map[string]*framework.NodeInfo {
+	nodeInfos := make(map[string]*framework.NodeInfo)
+	for i := range nodes {
+		newNodeInfo := framework.NewNodeInfo()
+		err := newNodeInfo.SetNode(nodes[i])
+		if err != nil {
+			log.Errorf("failed to set information of node: %v\n", err)
+		}
+		nodeInfos[nodes[i].Name] = newNodeInfo
+	}
+
+	return nodeInfos
+}
+
+func CalculateClusterBalanceValue(nodesInfo map[string]*framework.NodeInfo) float64 {
+	nodeBalanceValues := make([]float64, len(nodesInfo))
+	nodeNumber := 0
+	for _, nodeInfo := range nodesInfo {
+		nodeBalanceValues[nodeNumber], _ = utils.CalculateBalanceValue(nodeInfo.Requested, nodeInfo.Allocatable)
+		nodeNumber++
+	}
+
+	nodeBalanceValueSum := float64(0)
+	for _, v := range nodeBalanceValues {
+		nodeBalanceValueSum += v
+	}
+
+	clusterBalanceValue := nodeBalanceValueSum / float64(len(nodesInfo))
+	return clusterBalanceValue
+}
+
+func CodingResult(result *SimulateResult, pods []*corev1.Pod, nodes []*corev1.Node) []int {
+	podsCode := make([]int, len(pods))
+
+	for _, node := range result.NodeStatus {
+		nodeName := node.Node.Name
+		position := -1
+		for i := range nodes {
+			if nodes[i].Name == nodeName {
+				position = i
+				break
+			}
+		}
+
+		for _, podInfo := range node.Pods {
+			for k, object := range pods {
+				if object.Name == podInfo.Name {
+					podsCode[k] = position
+					break
+				}
+			}
+		}
+	}
+
+	return podsCode
 }
